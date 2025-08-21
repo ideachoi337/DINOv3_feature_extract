@@ -63,12 +63,12 @@ def process_subset(args, gpu_id, video_subset):
 
                 inputs = torch.stack(batch_tensors).to(device)
 
-                for i in range(len(args.model)):
+                for j in range(len(args.model)):
                     if args.mode == 'cls':
-                        outputs = model[i](inputs)
+                        outputs = model[j](inputs)
                     elif args.mode == 'patch':
-                        outputs = model[i].forward_features(inputs)['x_norm_patchtokens']
-                    video_features[i].append(outputs.cpu())
+                        outputs = model[j].forward_features(inputs)['x_norm_patchtokens']
+                    video_features[j].append(outputs.cpu())
 
         for i in range(len(args.model)):
             result_video_features = torch.cat(video_features[i], dim=0)
