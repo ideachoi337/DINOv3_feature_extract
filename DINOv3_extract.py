@@ -12,19 +12,23 @@ import argparse
 import torchvision
 from torchvision import transforms
 import time
+from torchvision.transforms import v2
+from torch.amp import autocast, GradScaler
 
-def make_transform(resize_size: int = 224):
-    to_tensor = transforms.ToTensor()
-    resize = transforms.Resize((resize_size, resize_size), antialias=True)
-    normalize = transforms.Normalize(
+def make_transform(resize_size: int = 256):
+    to_tensor = v2.ToImage()
+    resize = v2.Resize((resize_size, resize_size), antialias=True)
+    to_float = v2.ToDtype(torch.float32, scale=True)
+    normalize = v2.Normalize(
         mean=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
     )
-    return transforms.Compose([to_tensor, resize, normalize])
+    return v2.Compose([to_tensor, resize, to_float, normalize])
 
 def process_subset(args, gpu_id, video_subset):
     torch.cuda.set_device(gpu_id)
     device = torch.device(f"cuda:{gpu_id}")
+    scaler = GradScaler('cuda')
 
     model = []
     for i in range(len(args.model)):
@@ -63,12 +67,13 @@ def process_subset(args, gpu_id, video_subset):
 
                 inputs = torch.stack(batch_tensors).to(device)
 
-                for j in range(len(args.model)):
-                    if args.mode == 'cls':
-                        outputs = model[j](inputs)
-                    elif args.mode == 'patch':
-                        outputs = model[j].forward_features(inputs)['x_norm_patchtokens']
-                    video_features[j].append(outputs.cpu())
+                with autocast('cuda', dtype=torch.bfloat16):
+                    for j in range(len(args.model)):
+                        if args.mode == 'cls':
+                            outputs = model[j](inputs)
+                        elif args.mode == 'patch':
+                            outputs = model[j].forward_features(inputs)['x_norm_patchtokens']
+                        video_features[j].append(outputs.cpu())
 
         for i in range(len(args.model)):
             result_video_features = torch.cat(video_features[i], dim=0)
@@ -97,8 +102,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--frame_dir', type=str, default='/root/datasets/thumos14/frames/4fps_center')
-    parser.add_argument('--repo_dir', type=str, default='/root/datasets/thumos14/features/dinov3/dinov3')
+    parser.add_argument('--frame_dir', type=str, required=True)
+    parser.add_argument('--repo_dir', type=str, default='./dinov3')
     parser.add_argument('--output_dir', nargs='+', required=True)
     parser.add_argument('--model', nargs='+', required=True)
     parser.add_argument('--num_gpus', type=int, default=4)
